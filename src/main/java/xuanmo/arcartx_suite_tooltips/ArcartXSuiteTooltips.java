@@ -4,7 +4,6 @@ import net.minecraftforge.fml.common.Mod;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import xuanmo.arcartx_suite_tooltips.client.AxsTooltipAria;
-import xuanmo.arcartx_suite_tooltips.client.GunUiModeChannel;
 
 /**
  * ArcartX Suite 客户端辅助 mod 主类。
@@ -24,9 +23,6 @@ public class ArcartXSuiteTooltips {
 
     public ArcartXSuiteTooltips() {
         AxsTooltipAria.register();
-        // 通道必须在构造期注册：NetworkRegistry 在 CommonSetup 阶段冻结通道表，
-        // enqueueWork 晚于冻结点 → 注册了也收不到包（vanilla 报 unknown packet id）
-        GunUiModeChannel.register();
         LOGGER.info("ArcartX Suite Tooltips 已加载，tooltip 桥接已就绪。");
     }
 }

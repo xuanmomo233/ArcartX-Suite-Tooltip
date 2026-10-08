@@ -5,30 +5,19 @@ buildscript {
         maven { url = "https://plugins.gradle.org/m2/" }
         maven { url = 'https://maven.minecraftforge.net' }
         maven { url = 'https://maven.parchmentmc.org' }
-        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
         mavenCentral()
         gradlePluginPortal()
     }
     dependencies {
         classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '6.0.+', changing: true
         classpath 'org.parchmentmc:librarian:1.+'
-        classpath 'org.spongepowered:mixingradle:0.7.+'
     }
 }
 
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'org.parchmentmc.librarian.forgegradle'
-apply plugin: 'org.spongepowered.mixin'
 apply plugin: 'eclipse'
 apply plugin: 'java'
-
-// Mixin refmap：parchment(mojmap) 源码 → 生产环境 srg 名
-mixin {
-    add sourceSets.main, 'arcartx_suite_tooltips.refmap.json'
-    config 'arcartx_suite_tooltips.mixins.json'
-    // createMcpToSrg 产物是官方名→srg 名 TSRG 映射（FG6 下 reobfSrgFile 要求 TSRG 格式）
-    reobfSrgFile = file("${buildDir}/createMcpToSrg/output.tsrg")
-}
 
 version = "1.4.6"
 group = "xuanmo.arcartx_suite_tooltips"
@@ -76,9 +65,6 @@ dependencies {
 
     // ArcartX mod - compileOnly，用于 ArcartXClient.sendPacket API
     compileOnly name: 'ArcartX-Forge-1.20.1-2.7.92'
-
-    // Mixin 注解处理器：生成 refmap（mojmap → srg 名映射）
-    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
 jar {

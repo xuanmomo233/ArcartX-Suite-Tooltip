@@ -41,21 +41,16 @@ public class TooltipEventListener {
     private static final long DEBUG_LOG_INTERVAL_MS = 500L;
     private static long lastDebugLogTime = 0L;
 
-    /** 最近一次物品 tooltip 的栈（供 GunListOpener 判断当前悬停是否配件） */
+    /** 最近一次物品 tooltip 的栈（供界面内按键处理判断当前悬停物品） */
     private static volatile ItemStack hoveredStack = ItemStack.EMPTY;
     /** 最近一次 tooltip 事件的时间戳；超过 {@link #HOVER_STALE_MS} 未刷新视为已离开物品。 */
     private static volatile long hoveredAt;
     private static final long HOVER_STALE_MS = 350L;
 
-    /** 当前 tooltip 正在展示的物品栈；非物品 tooltip/清场时为 {@link ItemStack#EMPTY}。 */
-    public static ItemStack hoveredStack() {
-        return hoveredStack;
-    }
-
     /**
-     * 供 Shift 打开枪械浏览用的新鲜悬停栈：鼠标离开物品后不会再触发
+     * 供界面内按键处理用的新鲜悬停栈：鼠标离开物品后不会再触发
      * ItemTooltipEvent，缓存会残留上一次悬停的物品——超过
-     * {@link #HOVER_STALE_MS} 未刷新返回 EMPTY，防止在别的界面按 Shift 误开。
+     * {@link #HOVER_STALE_MS} 未刷新返回 EMPTY，防止按键误作用于已离开的物品。
      */
     public static ItemStack freshHoveredStack() {
         return System.currentTimeMillis() - hoveredAt <= HOVER_STALE_MS
@@ -302,10 +297,9 @@ public class TooltipEventListener {
         }
     }
 
-    /** 登出重置：枪械 UI 模式回默认（mod），避免跨服务器残留。 */
+    /** 登出重置：清空悬停与附加 lore 缓存，避免跨服务器残留。 */
     @SubscribeEvent
     public static void onLogout(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
-        AxsTooltipAria.setAxGunUi(false);
         hoveredStack = ItemStack.EMPTY;
         AxsTooltipAria.clear();
     }

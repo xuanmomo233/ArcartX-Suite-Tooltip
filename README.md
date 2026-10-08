@@ -1,7 +1,7 @@
 # ArcartX-Suite-Tooltip
 
 ArcartX Suite 客户端辅助 mod（Forge 1.20.1），为 ArcartX 自定义 tip UI 提供
-TACZ 枪械和 Apotheosis 神化词条的数据桥接，并实现配件"支持枪械"浏览界面。
+TACZ 枪械和 Apotheosis 神化词条的数据桥接。
 
 > 本仓库为 ArcartX-Suite-Tooltip 的开源代码仓库，供二次修改使用。
 
@@ -12,14 +12,6 @@ TACZ 枪械和 Apotheosis 神化词条的数据桥接，并实现配件"支持�
 | 函数 | 返回 | 说明 |
 |---|---|---|
 | `axstooltip.getTaczLore()` | `List<String>` | TACZ 物品文本行（枪械属性/配件增益/弹药箱/工作台描述，带 `§` 颜色码） |
-| `axstooltip.getTaczGuns()` | `List<String>` | TACZ 配件"支持枪械"的 itemJson 列表（持有优先排序，供 `Slot(~Icon)` + `setItemIcon`） |
-| `axstooltip.getTaczOwnedCount()` | `number` | `getTaczGuns()` 前 N 项为背包已持有 |
-| `axstooltip.getTaczGunNames()` | `List<String>` | 支持枪械显示名列表（与 getTaczGuns 同序） |
-| `axstooltip.hasTaczGuns()` | `boolean` | 当前配件是否有支持枪械列表 |
-| `axstooltip.getTaczGunCount()` | `number` | 支持枪械总数 |
-| `axstooltip.getTaczGunRows(列数)` | `number` | 按列数算行数 `ceil(n/cols)` |
-| `axstooltip.shiftDown()` | `boolean` | 玩家是否按住 Shift |
-| `axstooltip.showGunGrid()` / `showTaczStats()` | `boolean` | 网格/文本互斥显隐 |
 | `axstooltip.getApothLore()` | `List<String>` | Apotheosis 宝石槽描述行 |
 | `axstooltip.getExtraLore()` | `List<String>` | 两者合并（TACZ 在前） |
 | `axstooltip.hasTacz()` / `hasApoth()` / `hasExtra()` | `boolean` | 附加信息存在性 |
@@ -54,47 +46,17 @@ lore:
     texts: "'§8按 ' + axstooltip.loreKeyName() + (axstooltip.loreVisible() ? ' 隐藏说明' : ' 显示说明')"
 ```
 
-### TACZ 配件"支持枪械"浏览界面（双模式）
-
-悬停配件按 **Shift** 打开支持枪械浏览界面。**模式由服务端决定**——tooltip
-模块进服时通过 `axstooltip:gunui` plugin message 推送 `gun-list.mode` 配置：
-
-```
-mode: ax  → 服务端 openUi(AXS:gun_list)，AX 自定义 UI（960×720 面板，
-            10×6 网格、72px 格子、绿描边标记持有、滚轮/←→/按钮翻页、
-            ESC 关闭；数据走 axstooltip.* 全局函数，不走包）
-mode: mod → 客户端本地 Forge Screen（同尺寸自适应面板、原版 tooltip、
-            ESC 返回原界面、GUI 缩放 1-5 自适应收格距保底 10×6）
-模块未装/无推送 → 默认 mod 本地界面（向后安全）
-```
-
-服务端诊断：`/axs tooltip status` 显示当前模式与通道；
-`/axs tooltip push <玩家>` 手动重推模式。
-
 ### 保留行为
 
 - `APOTH_REMOVE_MARKER` 标记行仍被移除（防止泄漏进 `Tip.getLore()`）
 - `GradientColor` 动态渐变色冻结为基色（防止 lore 每帧抖动）
 - `AXS_TOOLTIP_DATA` 服务端上报不变，附加行随包附带
-- 枪包缺 `gun/slot/*_slot.png` 贴图时 fallback 物品图标
-
-### 悬停残留防护
-
-Shift 触发检查走 `getSlotUnderMouse()`（容器界面实时查询）+
-tooltip 缓存 350ms 新鲜度窗口（JEI 等非容器界面兜底）——鼠标离开物品后
-不会误开浏览界面。
 
 ## 网络通道
 
 | 通道 | 方向 | 用途 |
 |---|---|---|
 | `AXS_TOOLTIP_DATA` | C→S（ArcartX 通道） | tooltip 文本+结构化数据上报 |
-| `AXS_GUN_LIST` | C→S（ArcartX 通道） | ax 模式下 Shift 请求打开浏览 UI |
-| `axstooltip:gunui` | S→C（Bukkit plugin message） | 服务端推送 UI 模式（`ax`/`mod`） |
-
-`axstooltip:gunui` 由 Mixin `GunUiModePayloadMixin` 拦截
-`ClientPacketListener.handleCustomPayload` 接收（Forge `ChannelBuilder`
-事件通道实测不生效，mixin 与 ArcartX-Suite-Map 同构）。
 
 ## 依赖
 

@@ -6,12 +6,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.item.ItemStack;
-import priv.seventeen.artist.arcartx.common.game.world.itemstack.ItemStackParser;
 import priv.seventeen.artist.aria.callable.CallableManager;
 import priv.seventeen.artist.aria.value.BooleanValue;
 import priv.seventeen.artist.aria.value.IValue;
 import priv.seventeen.artist.aria.value.ListValue;
-import priv.seventeen.artist.aria.value.NumberValue;
 import priv.seventeen.artist.aria.value.StringValue;
 import xuanmo.arcartx_suite_tooltips.ArcartXSuiteTooltips;
 
@@ -27,9 +25,6 @@ import xuanmo.arcartx_suite_tooltips.ArcartXSuiteTooltips;
  * 注册的函数（均无参数，作用于当前悬停物品）：
  * <ul>
  *   <li>{@code axstooltip.getTaczLore()} → TACZ 物品文本行列表（含 § 颜色码）</li>
- *   <li>{@code axstooltip.getTaczGuns()} → TACZ 配件"支持枪械"的 itemJson 列表（供 Slot Icon + setItemIcon）</li>
- *   <li>{@code axstooltip.hasTaczGuns() / getTaczGunCount() / getTaczGunRows(列数) / getTaczGunNames()} → 枪支列表状态/数量/行数/名称列表</li>
- *   <li>{@code axstooltip.shiftDown() / showGunGrid() / showTaczStats()} → Shift 状态与网格/文本互斥显隐</li>
  *   <li>{@code axstooltip.getApothLore()} → Apotheosis 宝石描述文本行列表</li>
  *   <li>{@code axstooltip.getExtraLore()} → 两者合并列表（TACZ 在前）</li>
  *   <li>{@code axstooltip.hasTacz() / hasApoth() / hasExtra()} → 布尔值</li>
@@ -47,31 +42,8 @@ public final class AxsTooltipAria {
 
     private static volatile List<String> taczLines = List.of();
     private static volatile List<String> apothLines = List.of();
-    private static volatile List<String> taczGunJsons = List.of();
-    private static volatile List<String> taczGunNames = List.of();
     private static volatile boolean loreHidden;
     private static volatile boolean registered;
-
-    /** 持有优先排序的支持枪械栈（含真实背包栈，保留 display.Name） */
-    private static volatile List<ItemStack> taczGunStacks = List.of();
-    /** taczGunStacks 前 N 项为已持有 */
-    private static volatile int taczOwnedCount;
-    /**
-     * Shift 打开枪械浏览时的一次性快照。tooltip 缓存随悬停每帧刷新/清空，
-     * 而"按 Shift → 服务端 → UI 打开"有网络往返——快照保证 UI 打开时数据仍在。
-     */
-    private static volatile List<ItemStack> pendingGuns = List.of();
-    /** 快照时已序列化好的 itemJson（复用 onHover 的缓存，避免 UI 打开时再遍历序列化）。 */
-    private static volatile List<String> pendingJsons = List.of();
-    private static volatile int pendingOwned;
-    private static volatile long pendingExpireAt;
-
-    /**
-     * 枪械浏览 UI 模式：true=服务端 AX UI（gun_list），false=本地 Forge 界面。
-     * 由服务端通过 gun_channel HUD 的 gun_mode 包经 {@code setGunUiMode()} 下发；
-     * 收不到推送（模块未装/老版本）时默认 false——本地界面。
-     */
-    private static volatile boolean axGunUi;
 
     /** 原版 16 色 RGB → § 颜色码字符。 */
     private static final int[] LEGACY_RGB = {
@@ -98,25 +70,6 @@ public final class AxsTooltipAria {
         } catch (Throwable ignored) {
             taczLines = List.of();
         }
-        try {
-            TaczTooltipCollector.SortedGuns sorted = TaczTooltipCollector.collectSupportedGunsSorted(stack);
-            taczGunStacks = sorted.stacks();
-            taczOwnedCount = sorted.ownedCount();
-            List<String> jsons = new ArrayList<>(sorted.stacks().size());
-            List<String> names = new ArrayList<>(sorted.stacks().size());
-            for (ItemStack gun : sorted.stacks()) {
-                jsons.add(ItemStackParser.INSTANCE.toJson(
-                    (priv.seventeen.artist.arcartx.common.game.world.itemstack.ItemStack) (Object) gun));
-                names.add(gun.getHoverName().getString());
-            }
-            taczGunJsons = jsons;
-            taczGunNames = names;
-        } catch (Throwable ignored) {
-            taczGunStacks = List.of();
-            taczOwnedCount = 0;
-            taczGunJsons = List.of();
-            taczGunNames = List.of();
-        }
         if (apotheosisAvailable) {
             try {
                 apothLines = toLegacyLines(ApotheosisSocketFix.collectSocketLines(stack));
@@ -132,8 +85,6 @@ public final class AxsTooltipAria {
     public static void clear() {
         taczLines = List.of();
         apothLines = List.of();
-        taczGunJsons = List.of();
-        taczGunNames = List.of();
     }
 
     /**
@@ -153,56 +104,6 @@ public final class AxsTooltipAria {
     /** 当前悬停物品是否带 TACZ/神化附加内容（lore 隐藏开关只对它生效）。 */
     public static boolean currentItemHasExtra() {
         return !taczLines.isEmpty() || !apothLines.isEmpty();
-    }
-
-    /**
-     * Shift 打开枪械浏览时拍摄快照（由 {@link GunListOpener} 调用）。
-     * 之后 5 秒内 UI 的 {@code getTaczGuns()}/{@code openGunScreen()} 优先读快照。
-     */
-    public static void snapshotGunsForUi() {
-        pendingGuns = taczGunStacks;
-        pendingJsons = taczGunJsons;
-        pendingOwned = taczOwnedCount;
-        pendingExpireAt = System.currentTimeMillis() + 5000;
-    }
-
-    /** 快照/悬停缓存里已序列化好的 itemJson（过期回落到悬停缓存）。 */
-    private static List<String> activeGunJsons() {
-        return System.currentTimeMillis() <= pendingExpireAt ? pendingJsons : taczGunJsons;
-    }
-
-    /** 快照内的已排序枪栈（过期返回空）。 */
-    private static List<ItemStack> activeGunStacks() {
-        return System.currentTimeMillis() <= pendingExpireAt ? pendingGuns : taczGunStacks;
-    }
-
-    private static int activeOwnedCount() {
-        return System.currentTimeMillis() <= pendingExpireAt ? pendingOwned : taczOwnedCount;
-    }
-
-    /** 枪械浏览 UI 是否走服务端 AX 界面（false=本地 Forge 界面，默认）。 */
-    public static boolean useAxGunUi() {
-        return axGunUi;
-    }
-
-    /** 由 {@link GunUiModeChannel} 在收到服务端模式推送/登出时设置。 */
-    public static void setAxGunUi(boolean ax) {
-        axGunUi = ax;
-    }
-
-    /**
-     * 打开本地 Forge 枪械浏览界面（mod 模式）。
-     * <p>
-     * 由 {@link GunListOpener} 在 Shift 时直接调用；列表先拍快照再开，
-     * 避免渲染期间悬停缓存被刷新。
-     */
-    public static boolean openLocalGunScreen() {
-        snapshotGunsForUi();
-        List<ItemStack> guns = activeGunStacks();
-        if (guns.isEmpty()) return false;
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        mc.setScreen(new GunListScreen(mc.screen, guns, activeOwnedCount()));
-        return true;
     }
 
     /** 合并的附加行（供服务端 AXS_TOOLTIP_DATA 附带，保持聊天预览内容不变）。 */
@@ -240,30 +141,6 @@ public final class AxsTooltipAria {
                 data -> BooleanValue.of(!apothLines.isEmpty()));
             manager.registerStaticFunction(NAMESPACE, "hasExtra",
                 data -> BooleanValue.of(!taczLines.isEmpty() || !apothLines.isEmpty()));
-            manager.registerStaticFunction(NAMESPACE, "getTaczGuns",
-                data -> linesValue(activeGunJsons()));
-            manager.registerStaticFunction(NAMESPACE, "getTaczOwnedCount",
-                data -> NumberValue.of(activeOwnedCount()));
-            manager.registerStaticFunction(NAMESPACE, "hasTaczGuns",
-                data -> BooleanValue.of(!taczGunJsons.isEmpty()));
-            manager.registerStaticFunction(NAMESPACE, "getTaczGunRows",
-                data -> {
-                    int cols = data.argCount() > 0 ? Math.max(1, (int) data.get(0).numberValue()) : 1;
-                    return NumberValue.of((taczGunJsons.size() + cols - 1) / cols);
-                });
-            manager.registerStaticFunction(NAMESPACE, "getTaczGunCount",
-                data -> NumberValue.of(taczGunJsons.size()));
-            manager.registerStaticFunction(NAMESPACE, "getTaczGunNames",
-                data -> linesValue(taczGunNames));
-            manager.registerStaticFunction(NAMESPACE, "shiftDown",
-                data -> BooleanValue.of(net.minecraft.client.gui.screens.Screen.hasShiftDown()));
-            manager.registerStaticFunction(NAMESPACE, "showGunGrid",
-                data -> BooleanValue.of(!taczGunJsons.isEmpty()
-                    && net.minecraft.client.gui.screens.Screen.hasShiftDown()));
-            manager.registerStaticFunction(NAMESPACE, "showTaczStats",
-                data -> BooleanValue.of(!taczLines.isEmpty()
-                    && (taczGunJsons.isEmpty()
-                        || !net.minecraft.client.gui.screens.Screen.hasShiftDown())));
             manager.registerStaticFunction(NAMESPACE, "loreHidden",
                 data -> BooleanValue.of(loreHidden));
             manager.registerStaticFunction(NAMESPACE, "loreVisible",

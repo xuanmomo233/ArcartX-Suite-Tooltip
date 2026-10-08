@@ -7,7 +7,6 @@ import com.tacz.guns.api.item.IBlock;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.api.item.attachment.AttachmentType;
 import com.tacz.guns.api.item.builder.AmmoItemBuilder;
-import com.tacz.guns.api.item.builder.GunItemBuilder;
 import com.tacz.guns.client.resource.ClientAssetsManager;
 import com.tacz.guns.client.resource.index.ClientAttachmentIndex;
 import com.tacz.guns.client.resource.index.ClientBlockIndex;
@@ -29,9 +28,7 @@ import com.tacz.guns.util.AttachmentDataUtils;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
@@ -45,7 +42,8 @@ import net.minecraft.world.item.ItemStack;
  * TACZ 枪属性 tooltip 文本采集器。
  * <p>
  * 精确复刻 {@code ClientGunTooltip.getText()} 的计算逻辑，将枪属性转为
- * {@code Component} 文本行，供 {@code ItemTooltipEvent} 注入。
+ * {@code Component} 文本行，经 {@code AxsTooltipAria.onHover} 缓存后由
+ * {@code axstooltip.*} Aria 函数直供 tip yml 渲染（不注入原版 tooltip）。
  * <p>
  * 直接调用 TACZ public API（{@code IGun}、{@code TimelessAPI}、
  * {@code AttachmentDataUtils}），不使用反射。
@@ -271,9 +269,7 @@ public final class TaczTooltipCollector {
         // 属性修饰行（重量/开镜时间/后坐力等，即原版配件 tooltip 的主要增益行）
         data.getModifier().forEach((name, prop) -> lines.addAll(prop.getComponents()));
 
-        // 提示行（"按下Shift查看支持枪械"——AX tip 中按 Shift 会切换到图标网格）
-        lines.add(Component.translatable("tooltip.tacz.attachment.yaw.shift"));
-        // 枪包名（"支持枪械"标签行省略——Shift 网格态由图标区上方的名称行承担）
+        // 枪包名
         PackInfo packInfo = ClientAssetsManager.INSTANCE.getPackInfo(attachmentId);
         if (packInfo != null) {
             lines.add(Component.literal(packInfo.getName())
@@ -330,113 +326,6 @@ public final class TaczTooltipCollector {
                 .withStyle(ChatFormatting.BLUE, ChatFormatting.ITALIC));
         }
         return lines;
-    }
-
-    /**
-     * 采集 TACZ 配件的"支持枪械"物品栈列表。
-     * 复刻 {@code ClientAttachmentItemTooltip.getAllAllowGuns}：遍历所有枪械索引，
-     * 用 {@code IGun.allowAttachment} 过滤，结果按配件 id 缓存（原版也用缓存）。
-     */
-    private static final Map<ResourceLocation, List<ItemStack>> GUNS_CACHE = new ConcurrentHashMap<>();
-
-    public static List<ItemStack> collectSupportedGuns(ItemStack stack) {
-        IAttachment attachment = IAttachment.getIAttachmentOrNull(stack);
-        if (attachment == null) return List.of();
-        ResourceLocation attachmentId = attachment.getAttachmentId(stack);
-        return GUNS_CACHE.computeIfAbsent(attachmentId, id -> {
-            List<ItemStack> guns = new ArrayList<>();
-            for (Map.Entry<ResourceLocation, ?> entry : TimelessAPI.getAllCommonGunIndex()) {
-                ItemStack gun = GunItemBuilder.create().setId(entry.getKey()).build();
-                if (!(gun.getItem() instanceof IGun iGun)) continue;
-                if (iGun.allowAttachment(gun, stack)) {
-                    guns.add(gun);
-                }
-            }
-            return guns;
-        });
-    }
-
-    /**
-     * 采集"支持枪械"显示名列表（与 {@link #collectSupportedGuns} 同序）。
-     * <p>
-     * 服务器可能用 {@code display.Name} NBT 改了枪名——优先取玩家背包中实际
-     * 持有的同 id 枪的悬停名；未持有的枪回落到索引/语言名。
-     */
-    public static List<String> collectSupportedGunNames(ItemStack stack) {
-        List<ItemStack> guns = collectSupportedGuns(stack);
-        if (guns.isEmpty()) return List.of();
-
-        java.util.Map<ResourceLocation, String> owned = new java.util.HashMap<>();
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc.player != null) {
-            for (ItemStack s : mc.player.getInventory().items) putOwnedName(owned, s);
-            for (ItemStack s : mc.player.getInventory().armor) putOwnedName(owned, s);
-            for (ItemStack s : mc.player.getInventory().offhand) putOwnedName(owned, s);
-        }
-
-        List<String> names = new ArrayList<>(guns.size());
-        for (ItemStack gun : guns) {
-            IGun iGun = (IGun) gun.getItem();
-            ResourceLocation gunId = iGun.getGunId(gun);
-            String name = owned.get(gunId);
-            names.add(name != null ? name : gun.getHoverName().getString());
-        }
-        return names;
-    }
-
-    private static void putOwnedName(java.util.Map<ResourceLocation, String> map, ItemStack s) {
-        if (!(s.getItem() instanceof IGun iGun)) return;
-        map.putIfAbsent(iGun.getGunId(s), s.getHoverName().getString());
-    }
-
-    /**
-     * 收集玩家背包（主栏+护甲+副手）中已持有的 TACZ 枪械，gunId → 真实物品栈。
-     * <p>
-     * 用真实背包栈而非 {@code GunItemBuilder} 生成栈，可以保留服务器
-     * {@code display.Name} 自定义名与完整 NBT，tooltip/名称显示更准确。
-     */
-    public static Map<ResourceLocation, ItemStack> collectOwnedGunStacks() {
-        Map<ResourceLocation, ItemStack> guns = new java.util.LinkedHashMap<>();
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc.player != null) {
-            for (ItemStack s : mc.player.getInventory().items) putOwnedGun(guns, s);
-            for (ItemStack s : mc.player.getInventory().armor) putOwnedGun(guns, s);
-            for (ItemStack s : mc.player.getInventory().offhand) putOwnedGun(guns, s);
-        }
-        return guns;
-    }
-
-    private static void putOwnedGun(Map<ResourceLocation, ItemStack> map, ItemStack s) {
-        IGun iGun = IGun.getIGunOrNull(s);
-        if (iGun == null) return;
-        ResourceLocation id = iGun.getGunId(s);
-        if (id != null) map.putIfAbsent(id, s);
-    }
-
-    /**
-     * 持有优先排序的支持枪械列表。
-     * <p>
-     * 持有的枪用背包真实栈（保留服务器自定义名），未持有的用生成栈兜底。
-     * 返回列表前 {@code ownedCount} 项为已持有。
-     */
-    public record SortedGuns(java.util.List<ItemStack> stacks, int ownedCount) {}
-
-    public static SortedGuns collectSupportedGunsSorted(ItemStack stack) {
-        List<ItemStack> guns = collectSupportedGuns(stack);
-        if (guns.isEmpty()) return new SortedGuns(List.of(), 0);
-
-        Map<ResourceLocation, ItemStack> invGuns = collectOwnedGunStacks();
-        List<ItemStack> owned = new ArrayList<>();
-        List<ItemStack> others = new ArrayList<>();
-        for (ItemStack gun : guns) {
-            IGun iGun = IGun.getIGunOrNull(gun);
-            ResourceLocation id = iGun != null ? iGun.getGunId(gun) : null;
-            ItemStack real = id != null ? invGuns.get(id) : null;
-            (real != null ? owned : others).add(real != null ? real : gun);
-        }
-        List<ItemStack> sorted = new ArrayList<>(owned);
-        sorted.addAll(others);
-        return new SortedGuns(sorted, owned.size());
     }
 
     private static boolean shouldShow(GunTooltipPart part, int hideFlags) {

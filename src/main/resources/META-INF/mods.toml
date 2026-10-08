@@ -10,9 +10,6 @@ description='''
 ArcartX Suite 客户端辅助 mod，为 ArcartX 自定义 UI 提供 TACZ 枪械和 Apotheosis 神化词条的 tooltip 桥接。
 '''
 
-[[mixins]]
-    config="arcartx_suite_tooltips.mixins.json"
-
 [[dependencies.arcartx_suite_tooltips]]
     modId="minecraft"
     mandatory=true
