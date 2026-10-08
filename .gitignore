@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+build/
+run/
+out/
+*.class
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时下载
+jdk17.zip
+
+
+
+# 本地缓存
+*.part
+*.lck
+
+build-artifact/

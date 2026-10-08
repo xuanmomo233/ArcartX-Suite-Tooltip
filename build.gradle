@@ -1,0 +1,98 @@
+import java.text.SimpleDateFormat
+
+buildscript {
+    repositories {
+        maven { url = "https://plugins.gradle.org/m2/" }
+        maven { url = 'https://maven.minecraftforge.net' }
+        maven { url = 'https://maven.parchmentmc.org' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '6.0.+', changing: true
+        classpath 'org.parchmentmc:librarian:1.+'
+        classpath 'org.spongepowered:mixingradle:0.7.+'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'org.parchmentmc.librarian.forgegradle'
+apply plugin: 'org.spongepowered.mixin'
+apply plugin: 'eclipse'
+apply plugin: 'java'
+
+// Mixin refmap：parchment(mojmap) 源码 → 生产环境 srg 名
+mixin {
+    add sourceSets.main, 'arcartx_suite_tooltips.refmap.json'
+    config 'arcartx_suite_tooltips.mixins.json'
+    // createMcpToSrg 产物是官方名→srg 名 TSRG 映射（FG6 下 reobfSrgFile 要求 TSRG 格式）
+    reobfSrgFile = file("${buildDir}/createMcpToSrg/output.tsrg")
+}
+
+version = "1.4.6"
+group = "xuanmo.arcartx_suite_tooltips"
+archivesBaseName = "ArcartX-Suite-Tooltip"
+
+// CI 环境提供 Java 17（temurin-17）
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    // 使用 parchment 映射（与 TACZ 一致）
+    mappings channel: 'parchment', version: '2023.08.20-1.20.1'
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                arcartx_suite_tooltips {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.3.0'
+
+    // TACZ - compileOnly，运行时由整合包提供（对 1.1.5 编译，1.1.7/1.1.8 向后兼容）
+    compileOnly name: 'tacz-1.20.1-1.1.5-all'
+
+    // Apotheosis - compileOnly，运行时由整合包提供
+    compileOnly name: 'Apotheosis-1.20.1-7.4.8'
+
+    // AMR - compileOnly
+    compileOnly name: 'apotheosis_modern_ragnarok-forge-1.20.1-tacz1.1.8-7.0.0'
+
+    // ArcartX mod - compileOnly，用于 ArcartXClient.sendPacket API
+    compileOnly name: 'ArcartX-Forge-1.20.1-2.7.92'
+
+    // Mixin 注解处理器：生成 refmap（mojmap → srg 名映射）
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+jar {
+    manifest {
+        attributes([
+            "Specification-Title"     : "arcartx_suite_tooltips",
+            "Specification-Vendor"     : "xuanmo",
+            "Specification-Version"    : "1",
+            "Implementation-Title"     : project.name,
+            "Implementation-Version"   : project.jar.archiveVersion,
+            "Implementation-Vendor"    : "xuanmo",
+            "Implementation-Timestamp" : new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+}
+
+
