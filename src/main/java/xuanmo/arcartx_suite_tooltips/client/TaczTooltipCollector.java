@@ -42,7 +42,7 @@ import net.minecraft.world.item.ItemStack;
  * TACZ 枪属性 tooltip 文本采集器。
  * <p>
  * 精确复刻 {@code ClientGunTooltip.getText()} 的计算逻辑，将枪属性转为
- * {@code Component} 文本行，经 {@code AxsTooltipAria.onHover} 缓存后由
+ * {@code Component} 文本行，经 {@code AxsTooltipAria.collect} 生成快照后由
  * {@code axstooltip.*} Aria 函数直供 tip yml 渲染（不注入原版 tooltip）。
  * <p>
  * 直接调用 TACZ public API（{@code IGun}、{@code TimelessAPI}、

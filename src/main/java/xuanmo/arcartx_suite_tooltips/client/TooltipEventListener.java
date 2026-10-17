@@ -12,6 +12,8 @@ import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderTooltipEvent;
+import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -19,7 +21,7 @@ import net.minecraftforge.fml.common.Mod;
 import xuanmo.arcartx_suite_tooltips.ArcartXSuiteTooltips;
 
 /**
- * ItemTooltipEvent 监听器：刷新 {@link AxsTooltipAria} 的悬停数据缓存，
+ * ItemTooltipEvent 监听器：采集物品的独立数据快照，
  * 清理 tooltip 中的 Apotheosis 标记行与动态渐变颜色，并将 tooltip 数据
  * 发送给服务端 tooltip 模块。
  * <p>
@@ -41,41 +43,29 @@ public class TooltipEventListener {
     private static final long DEBUG_LOG_INTERVAL_MS = 500L;
     private static long lastDebugLogTime = 0L;
 
-    /** 最近一次物品 tooltip 的栈（供界面内按键处理判断当前悬停物品） */
-    private static volatile ItemStack hoveredStack = ItemStack.EMPTY;
-    /** 最近一次 tooltip 事件的时间戳；超过 {@link #HOVER_STALE_MS} 未刷新视为已离开物品。 */
-    private static volatile long hoveredAt;
-    private static final long HOVER_STALE_MS = 350L;
-
     /**
-     * 供界面内按键处理用的新鲜悬停栈：鼠标离开物品后不会再触发
-     * ItemTooltipEvent，缓存会残留上一次悬停的物品——超过
-     * {@link #HOVER_STALE_MS} 未刷新返回 EMPTY，防止按键误作用于已离开的物品。
+     * 仅返回刚实际显示过的物品；界面、鼠标位置、渲染帧或超时失效时返回 EMPTY。
      */
     public static ItemStack freshHoveredStack() {
-        return System.currentTimeMillis() - hoveredAt <= HOVER_STALE_MS
-            ? hoveredStack : ItemStack.EMPTY;
+        return AxsTooltipAria.recentRenderedStack();
+    }
+
+    static TooltipData collectTooltipData(ItemStack stack) {
+        ensureApotheosisChecked();
+        return AxsTooltipAria.collect(stack, apotheosisAvailable);
     }
 
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack stack = event.getItemStack();
-        if (stack.isEmpty()) {
-            hoveredStack = ItemStack.EMPTY;
-            AxsTooltipAria.clear();
-            return;
-        }
-        hoveredStack = stack;
-        hoveredAt = System.currentTimeMillis();
+        if (stack.isEmpty()) return;
 
         List<Component> tooltip = event.getToolTip();
         long now = System.currentTimeMillis();
         boolean shouldLog = DEBUG && (now - lastDebugLogTime >= DEBUG_LOG_INTERVAL_MS);
 
-        ensureApotheosisChecked();
-
-        // 1. 刷新 Aria 附加 lore 缓存（不注入 tooltip，供 tip yml 独立渲染）
-        AxsTooltipAria.onHover(stack, apotheosisAvailable);
+        // 1. 仅采集本物品的快照；JEI/聊天等后台取 tooltip 不改变当前渲染上下文。
+        TooltipData data = collectTooltipData(stack);
 
         if (shouldLog) {
             lastDebugLogTime = now;
@@ -102,11 +92,11 @@ public class TooltipEventListener {
         }
 
         // 4. 发送给服务端（附加行随包附带，不进 vanilla tooltip）
-        sendTooltipDataToServer(stack, tooltip, shouldLog);
+        sendTooltipDataToServer(stack, tooltip, data, shouldLog);
 
         // 5. 普通物品不展示原版/AttributesLib 自动生成的属性行。
         // 放在上报之后，保持服务端聊天预览所需的完整数据。
-        TooltipAttributeFilter.filter(tooltip, AxsTooltipAria.currentItemHasExtra());
+        TooltipAttributeFilter.filter(tooltip, data.hasExtra());
     }
 
     /** 完整 dump tooltip 列表（含颜色类型和 RGB 值，递归检查子组件） */
@@ -287,25 +277,30 @@ public class TooltipEventListener {
         apotheosisChecked = true;
     }
 
-    /**
-     * 非物品 tooltip（按钮提示、纯文本悬浮等）不触发 ItemTooltipEvent，
-     * {@link AxsTooltipAria} 缓存的 TACZ/神化行会残留并混入非物品 tip。
-     * GatherComponents 对所有 tooltip 渲染都会触发且位于 renderTooltipInternal
-     * （AX hook）之前——stack 为空即非物品 tooltip，同帧清空缓存。
-     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onRenderFrameStart(TickEvent.RenderTickEvent event) {
+        if (event.phase == TickEvent.Phase.START) AxsTooltipAria.beginFrame();
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onRenderFrameEnd(TickEvent.RenderTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) AxsTooltipAria.endFrame();
+    }
+
     @SubscribeEvent
-    public static void onGatherComponentsClear(RenderTooltipEvent.GatherComponents event) {
-        if (event.getItemStack().isEmpty()) {
-            hoveredStack = ItemStack.EMPTY;
-            AxsTooltipAria.clear();
-        }
+    public static void onScreenOpening(ScreenEvent.Opening event) {
+        AxsTooltipAria.clear();
+    }
+
+    @SubscribeEvent
+    public static void onScreenClosing(ScreenEvent.Closing event) {
+        AxsTooltipAria.clear();
     }
 
     /** 登出重置：清空悬停与附加 lore 缓存，避免跨服务器残留。 */
     @SubscribeEvent
     public static void onLogout(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
-        hoveredStack = ItemStack.EMPTY;
-        AxsTooltipAria.clear();
+        AxsTooltipAria.resetSession();
     }
 
     /**
@@ -378,7 +373,7 @@ public class TooltipEventListener {
      * 采集 tooltip 文本行和结构化数据，发送给服务端。
      * 客户端内置 2 秒冷却（同一物品指纹），避免每帧发包。
      */
-    private static void sendTooltipDataToServer(ItemStack stack, List<Component> tooltip, boolean shouldLog) {
+    private static void sendTooltipDataToServer(ItemStack stack, List<Component> tooltip, TooltipData data, boolean shouldLog) {
         try {
             List<String> textLines = new ArrayList<>(tooltip.size());
             for (Component component : tooltip) {
@@ -388,7 +383,7 @@ public class TooltipEventListener {
                 }
             }
             // 附加行（TACZ/Apotheosis）随包附带，保持服务端聊天预览内容不变
-            textLines.addAll(AxsTooltipAria.extraLines());
+            textLines.addAll(data.extraLines());
 
             String structuredData = TaczTooltipCollector.collectStructuredData(stack);
             if (structuredData == null) {

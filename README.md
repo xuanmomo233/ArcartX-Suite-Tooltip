@@ -48,11 +48,26 @@ lore:
 
 ### 属性过滤与兼容行为
 
+- 附加词条只绑定 AX 实际渲染的物品 tip：按钮、纯文本提示、普通物品、下一帧、界面切换和断线不会沿用上一件物品的数据
+- 兼容 AX 物品槽使用独立悬停栈的渲染路径，不以 Forge `GatherComponents` 中的空栈直接判定非物品
+- `getTaczLore()` / `getApothLore()` / `getExtraLore()` / `has*()` 在有效物品 tip 渲染范围外返回空列表或 `false`；V 按键只作用于同界面、同鼠标位置刚实际显示的物品，断线重置显隐开关
+- 物品信息采集和服务端上报使用独立、不可变的快照，JEI 等后台调用不会污染正在显示的 tip
 - 无 TACZ／神化内容的物品不再显示原版、AttributesLib 自动生成的属性行及装备栏标题；按组件翻译键识别，保留名称和服务器文字 Lore
 - 神化词缀装备、带空宝石槽的装备也会正确识别为神化物品，保留属性并支持 Lore 切换
 - `APOTH_REMOVE_MARKER` 标记行仍被移除（防止泄漏进 `Tip.getLore()`）
 - `GradientColor` 动态渐变色冻结为基色（防止 lore 每帧抖动）
 - `AXS_TOOLTIP_DATA` 服务端上报不变，附加行随包附带
+
+附加词条控件应直接动态绑定读取函数和存在性判断，避免 UI 自身只在 `load`
+时缓存上一件物品的列表：
+
+```yaml
+附加词条:
+  type: Text
+  attribute:
+    texts: axstooltip.getExtraLore()
+    visible: axstooltip.hasExtra()
+```
 
 ## 网络通道
 

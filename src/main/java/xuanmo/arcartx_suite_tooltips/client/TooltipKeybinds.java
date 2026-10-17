@@ -56,7 +56,7 @@ public final class TooltipKeybinds {
                 // 与屏内路径同一闸门：悬停物品无 TACZ/神化附加内容
                 //（或根本没悬停物品，如在世界中按键）时不翻转全局
                 // 开关——避免不可见的污染让下次悬停枪械时 lore 莫名消失。
-                if (AxsTooltipAria.currentItemHasExtra()
+                if (AxsTooltipAria.recentItemHasExtra()
                         && !TooltipEventListener.freshHoveredStack().isEmpty()) {
                     AxsTooltipAria.toggleLore();
                 }
@@ -73,7 +73,7 @@ public final class TooltipKeybinds {
         public static void onScreenKeyPressed(ScreenEvent.KeyPressed.Pre event) {
             if (!isLoreKey(event.getKeyCode())
                     || event.getScreen().getFocused() instanceof EditBox
-                    || !AxsTooltipAria.currentItemHasExtra()
+                    || !AxsTooltipAria.recentItemHasExtra()
                     || TooltipEventListener.freshHoveredStack().isEmpty()) return;
             AxsTooltipAria.toggleLore();
         }

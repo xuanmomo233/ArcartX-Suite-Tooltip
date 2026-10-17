@@ -2,6 +2,8 @@ package xuanmo.arcartx_suite_tooltips.client;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
@@ -33,16 +35,19 @@ import xuanmo.arcartx_suite_tooltips.ArcartXSuiteTooltips;
  *   <li>{@code axstooltip.toggleLore()} → 翻转显隐，返回新状态</li>
  *   <li>{@code axstooltip.loreKeyName()} → lore 切换键的本地化显示名（跟随按键设置改键）</li>
  * </ul>
- * 数据由 {@link TooltipEventListener#onItemTooltip} 每帧刷新缓存，
- * 函数调用本身只做读取，开销可忽略。
+ * 数据由 AX 的实际 tooltip 渲染事件绑定，脚本读取必须位于当前渲染帧及界面内。
+ * ItemTooltipEvent 的后台采集和服务端上报不改变正在显示的词条。
  */
 public final class AxsTooltipAria {
 
     public static final String NAMESPACE = "axstooltip";
 
-    private static volatile List<String> taczLines = List.of();
-    private static volatile List<String> apothLines = List.of();
-    private static volatile boolean apothContent;
+    private record RenderedTooltip(ItemStack stack, TooltipData data) {
+        private static final RenderedTooltip EMPTY = new RenderedTooltip(ItemStack.EMPTY, TooltipData.EMPTY);
+    }
+
+    private static final TooltipRenderState<RenderedTooltip> RENDER_STATE =
+        new TooltipRenderState<>(RenderedTooltip.EMPTY, TimeUnit.MILLISECONDS.toNanos(350));
     private static volatile boolean loreHidden;
     private static volatile boolean registered;
 
@@ -60,12 +65,16 @@ public final class AxsTooltipAria {
     private AxsTooltipAria() {}
 
     /**
-     * 每帧悬停回调：重新采集 TACZ/Apotheosis 附加行并转为带 § 颜色码的字符串。
+     * 无副作用地采集完整快照，不向全局渲染上下文发布数据。
      *
      * @param stack               当前悬停物品
      * @param apotheosisAvailable Apotheosis 是否可用（由调用方缓存检测结果）
      */
-    public static void onHover(ItemStack stack, boolean apotheosisAvailable) {
+    static TooltipData collect(ItemStack stack, boolean apotheosisAvailable) {
+        if (stack == null || stack.isEmpty()) return TooltipData.EMPTY;
+        List<String> taczLines;
+        List<String> apothLines = List.of();
+        boolean apothContent = false;
         try {
             taczLines = toLegacyLines(TaczTooltipCollector.collectTooltipLines(stack));
         } catch (Throwable ignored) {
@@ -82,17 +91,58 @@ public final class AxsTooltipAria {
             } catch (Throwable ignored) {
                 apothLines = List.of();
             }
-        } else {
-            apothContent = false;
-            apothLines = List.of();
         }
+        return new TooltipData(taczLines, apothLines, apothContent);
+    }
+
+    static void beginFrame() {
+        RENDER_STATE.beginFrame(Minecraft.getInstance().screen);
+    }
+
+    static void endFrame() {
+        RENDER_STATE.endFrame();
+    }
+
+    static void bindRenderedTooltip(ItemStack stack) {
+        Minecraft client = Minecraft.getInstance();
+        if (!client.isSameThread()) return;
+        // 先失效上一份数据，即使本次采集/复制异常也不会暴露旧物品。
+        RENDER_STATE.bind(client.screen, RenderedTooltip.EMPTY, System.nanoTime(),
+            client.mouseHandler.xpos(), client.mouseHandler.ypos());
+        if (stack == null || stack.isEmpty()) return;
+        TooltipData data = TooltipEventListener.collectTooltipData(stack);
+        RENDER_STATE.bind(client.screen, new RenderedTooltip(stack.copy(), data), System.nanoTime(),
+            client.mouseHandler.xpos(), client.mouseHandler.ypos());
+    }
+
+    private static RenderedTooltip renderedTooltip(boolean forInteraction) {
+        Minecraft client = Minecraft.getInstance();
+        if (!client.isSameThread()) return RenderedTooltip.EMPTY;
+        return forInteraction
+            ? RENDER_STATE.recent(client.screen, System.nanoTime(), client.mouseHandler.xpos(), client.mouseHandler.ypos())
+            : RENDER_STATE.current(client.screen, System.nanoTime(), client.mouseHandler.xpos(), client.mouseHandler.ypos());
+    }
+
+    private static TooltipData currentData() {
+        return renderedTooltip(false).data();
+    }
+
+    static ItemStack recentRenderedStack() {
+        return renderedTooltip(true).stack();
+    }
+
+    static boolean recentItemHasExtra() {
+        return renderedTooltip(true).data().hasExtra();
     }
 
     /** 悬停结束/断线时清空缓存，避免旧数据泄漏到下一次 tip 渲染。 */
     public static void clear() {
-        taczLines = List.of();
-        apothLines = List.of();
-        apothContent = false;
+        RENDER_STATE.clear();
+    }
+
+    static void resetSession() {
+        clear();
+        loreHidden = false;
     }
 
     /**
@@ -101,7 +151,7 @@ public final class AxsTooltipAria {
      * @return 翻转后的新状态（true = 隐藏）
      */
     public static boolean toggleLore() {
-        loreHidden = !loreHidden;
+        if (recentItemHasExtra()) loreHidden = !loreHidden;
         return loreHidden;
     }
 
@@ -111,20 +161,12 @@ public final class AxsTooltipAria {
 
     /** 当前悬停物品是否带 TACZ/神化附加内容（lore 隐藏开关只对它生效）。 */
     public static boolean currentItemHasExtra() {
-        return !taczLines.isEmpty() || hasApothContent();
+        return currentData().hasExtra();
     }
 
-    private static boolean hasApothContent() {
-        return apothContent || !apothLines.isEmpty();
-    }
-
-    /** 合并的附加行（供服务端 AXS_TOOLTIP_DATA 附带，保持聊天预览内容不变）。 */
+    /** 当前实际渲染 tip 的附加行；服务端上报使用自身的采集快照。 */
     public static List<String> extraLines() {
-        if (taczLines.isEmpty() && apothLines.isEmpty()) return List.of();
-        List<String> merged = new ArrayList<>(taczLines.size() + apothLines.size());
-        merged.addAll(taczLines);
-        merged.addAll(apothLines);
-        return merged;
+        return currentData().extraLines();
     }
 
     /**
@@ -142,15 +184,15 @@ public final class AxsTooltipAria {
         try {
             CallableManager manager = CallableManager.INSTANCE;
             manager.registerStaticFunction(NAMESPACE, "getTaczLore",
-                data -> linesValue(taczLines));
+                data -> linesValue(currentData().taczLines()));
             manager.registerStaticFunction(NAMESPACE, "getApothLore",
-                data -> linesValue(apothLines));
+                data -> linesValue(currentData().apothLines()));
             manager.registerStaticFunction(NAMESPACE, "getExtraLore",
                 data -> linesValue(extraLines()));
             manager.registerStaticFunction(NAMESPACE, "hasTacz",
-                data -> BooleanValue.of(!taczLines.isEmpty()));
+                data -> BooleanValue.of(currentData().hasTacz()));
             manager.registerStaticFunction(NAMESPACE, "hasApoth",
-                data -> BooleanValue.of(hasApothContent()));
+                data -> BooleanValue.of(currentData().hasApoth()));
             manager.registerStaticFunction(NAMESPACE, "hasExtra",
                 data -> BooleanValue.of(currentItemHasExtra()));
             manager.registerStaticFunction(NAMESPACE, "loreHidden",
@@ -162,8 +204,9 @@ public final class AxsTooltipAria {
             manager.registerStaticFunction(NAMESPACE, "loreKeyName",
                 data -> new StringValue(TooltipKeybinds.TOGGLE_LORE
                     .getTranslatedKeyMessage().getString()));
+            ArcartXTooltipListener.register();
             registered = true;
-            ArcartXSuiteTooltips.LOGGER.info("[AXS-Tooltips] Aria 函数 axstooltip.* 注册完成");
+            ArcartXSuiteTooltips.LOGGER.info("[AXS-Tooltips] Aria 函数 axstooltip.* 与 AX tip 渲染监听器注册完成");
         } catch (Throwable t) {
             ArcartXSuiteTooltips.LOGGER.error("[AXS-Tooltips] 注册 Aria 函数失败", t);
         }

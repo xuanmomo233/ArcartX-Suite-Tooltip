@@ -19,7 +19,7 @@ apply plugin: 'org.parchmentmc.librarian.forgegradle'
 apply plugin: 'eclipse'
 apply plugin: 'java'
 
-version = "1.4.7"
+version = "1.4.8"
 group = "xuanmo.arcartx_suite_tooltips"
 archivesBaseName = "ArcartX-Suite-Tooltip"
 
