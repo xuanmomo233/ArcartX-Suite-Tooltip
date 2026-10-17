@@ -103,6 +103,10 @@ public class TooltipEventListener {
 
         // 4. 发送给服务端（附加行随包附带，不进 vanilla tooltip）
         sendTooltipDataToServer(stack, tooltip, shouldLog);
+
+        // 5. 普通物品不展示原版/AttributesLib 自动生成的属性行。
+        // 放在上报之后，保持服务端聊天预览所需的完整数据。
+        TooltipAttributeFilter.filter(tooltip, AxsTooltipAria.currentItemHasExtra());
     }
 
     /** 完整 dump tooltip 列表（含颜色类型和 RGB 值，递归检查子组件） */

@@ -42,6 +42,7 @@ public final class AxsTooltipAria {
 
     private static volatile List<String> taczLines = List.of();
     private static volatile List<String> apothLines = List.of();
+    private static volatile boolean apothContent;
     private static volatile boolean loreHidden;
     private static volatile boolean registered;
 
@@ -72,11 +73,17 @@ public final class AxsTooltipAria {
         }
         if (apotheosisAvailable) {
             try {
+                apothContent = ApotheosisSocketFix.hasContent(stack);
+            } catch (Throwable ignored) {
+                apothContent = false;
+            }
+            try {
                 apothLines = toLegacyLines(ApotheosisSocketFix.collectSocketLines(stack));
             } catch (Throwable ignored) {
                 apothLines = List.of();
             }
         } else {
+            apothContent = false;
             apothLines = List.of();
         }
     }
@@ -85,6 +92,7 @@ public final class AxsTooltipAria {
     public static void clear() {
         taczLines = List.of();
         apothLines = List.of();
+        apothContent = false;
     }
 
     /**
@@ -103,7 +111,11 @@ public final class AxsTooltipAria {
 
     /** 当前悬停物品是否带 TACZ/神化附加内容（lore 隐藏开关只对它生效）。 */
     public static boolean currentItemHasExtra() {
-        return !taczLines.isEmpty() || !apothLines.isEmpty();
+        return !taczLines.isEmpty() || hasApothContent();
+    }
+
+    private static boolean hasApothContent() {
+        return apothContent || !apothLines.isEmpty();
     }
 
     /** 合并的附加行（供服务端 AXS_TOOLTIP_DATA 附带，保持聊天预览内容不变）。 */
@@ -138,14 +150,13 @@ public final class AxsTooltipAria {
             manager.registerStaticFunction(NAMESPACE, "hasTacz",
                 data -> BooleanValue.of(!taczLines.isEmpty()));
             manager.registerStaticFunction(NAMESPACE, "hasApoth",
-                data -> BooleanValue.of(!apothLines.isEmpty()));
+                data -> BooleanValue.of(hasApothContent()));
             manager.registerStaticFunction(NAMESPACE, "hasExtra",
-                data -> BooleanValue.of(!taczLines.isEmpty() || !apothLines.isEmpty()));
+                data -> BooleanValue.of(currentItemHasExtra()));
             manager.registerStaticFunction(NAMESPACE, "loreHidden",
                 data -> BooleanValue.of(loreHidden));
             manager.registerStaticFunction(NAMESPACE, "loreVisible",
-                data -> BooleanValue.of(!loreHidden
-                    || (taczLines.isEmpty() && apothLines.isEmpty())));
+                data -> BooleanValue.of(!loreHidden || !currentItemHasExtra()));
             manager.registerStaticFunction(NAMESPACE, "toggleLore",
                 data -> BooleanValue.of(toggleLore()));
             manager.registerStaticFunction(NAMESPACE, "loreKeyName",

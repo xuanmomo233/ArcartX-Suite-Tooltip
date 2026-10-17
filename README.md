@@ -14,7 +14,7 @@ TACZ 枪械和 Apotheosis 神化词条的数据桥接。
 | `axstooltip.getTaczLore()` | `List<String>` | TACZ 物品文本行（枪械属性/配件增益/弹药箱/工作台描述，带 `§` 颜色码） |
 | `axstooltip.getApothLore()` | `List<String>` | Apotheosis 宝石槽描述行 |
 | `axstooltip.getExtraLore()` | `List<String>` | 两者合并（TACZ 在前） |
-| `axstooltip.hasTacz()` / `hasApoth()` / `hasExtra()` | `boolean` | 附加信息存在性 |
+| `axstooltip.hasTacz()` / `hasApoth()` / `hasExtra()` | `boolean` | TACZ 附加行／神化内容／任一内容存在性；神化包含词缀和空宝石槽，不仅是宝石描述行 |
 | `axstooltip.loreHidden()` | `boolean` | lore 隐藏开关原始状态 |
 | `axstooltip.loreVisible()` | `boolean` | **有效显隐**：开关开着且物品带 TACZ/神化内容才隐藏，普通物品 lore 恒显示 |
 | `axstooltip.toggleLore()` | `boolean` | 翻转显隐，返回新状态 |
@@ -46,8 +46,10 @@ lore:
     texts: "'§8按 ' + axstooltip.loreKeyName() + (axstooltip.loreVisible() ? ' 隐藏说明' : ' 显示说明')"
 ```
 
-### 保留行为
+### 属性过滤与兼容行为
 
+- 无 TACZ／神化内容的物品不再显示原版、AttributesLib 自动生成的属性行及装备栏标题；按组件翻译键识别，保留名称和服务器文字 Lore
+- 神化词缀装备、带空宝石槽的装备也会正确识别为神化物品，保留属性并支持 Lore 切换
 - `APOTH_REMOVE_MARKER` 标记行仍被移除（防止泄漏进 `Tip.getLore()`）
 - `GradientColor` 动态渐变色冻结为基色（防止 lore 每帧抖动）
 - `AXS_TOOLTIP_DATA` 服务端上报不变，附加行随包附带

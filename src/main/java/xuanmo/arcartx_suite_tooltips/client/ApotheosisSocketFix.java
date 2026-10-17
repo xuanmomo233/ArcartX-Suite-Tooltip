@@ -1,6 +1,7 @@
 package xuanmo.arcartx_suite_tooltips.client;
 
 import dev.shadowsoffire.apotheosis.adventure.client.SocketTooltipRenderer;
+import dev.shadowsoffire.apotheosis.adventure.affix.AffixHelper;
 import dev.shadowsoffire.apotheosis.adventure.socket.SocketHelper;
 import dev.shadowsoffire.apotheosis.adventure.socket.SocketedGems;
 import dev.shadowsoffire.apotheosis.adventure.socket.gem.GemInstance;
@@ -33,6 +34,11 @@ import net.minecraft.world.item.ItemStack;
 public final class ApotheosisSocketFix {
 
     private ApotheosisSocketFix() {}
+
+    /** 词缀装备和空宝石槽也属于神化内容，不能只根据宝石描述行判定。 */
+    public static boolean hasContent(ItemStack stack) {
+        return SocketHelper.getSockets(stack) > 0 || AffixHelper.hasAffixes(stack);
+    }
 
     /**
      * 从 ItemStack 提取 Apotheosis 宝石槽描述文本行。
